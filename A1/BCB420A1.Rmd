@@ -72,6 +72,12 @@ keep <- res %>%
   cpm() %>%
   rowSums(.>1) >= 8
 resFilt <- res[keep,]
+
+```
+Try mapping with this: https://support.bioconductor.org/p/87454/
+and also read paper to see how authors mapped it
+Normalize the counts:
+```{r}
 # create groups matrix:
 g <- unlist(strsplit(colnames(res)[2:9], split="_"))
 days <- sapply(g, `[`, 1)
@@ -84,11 +90,13 @@ colnames(expDesign) <- c("day", "replicate")
 # normalization:
 d <- DGEList(as.matrix(res[,2:9]), group=expDesign$day)
 dnorm <- calcNormFactors(d)
+normCounts <- cpm(dnorm)
 ```
-Try mapping with this: https://support.bioconductor.org/p/87454/
-and also read paper to see how authors mapped it
+
+Exploratory data analysis:
 ```{r}
-
-
+library(RColorBrewer)
+cols <- brewer.pal(n = 8, name = "Dark2")
+plotMDS(dnorm, col=cols[factor(expDesign$day)])
 ```
 
