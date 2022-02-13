@@ -10,7 +10,13 @@ if (!requireNamespace("GEOmetadb", quietly = TRUE))
     BiocManager::install("GEOmetadb")
 if (!requireNamespace("edgeR", quietly = TRUE))
     BiocManager::install("edgeR")
+suppressPackageStartupMessages({
+  library(tidyverse)
+library(edgeR)
+library(org.Hs.eg.db)
 library(GEOmetadb)
+})
+
 if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
 con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
 geo_tables <- dbListTables(con)
@@ -50,11 +56,9 @@ data <- data %>%
 
 ```
 
-Map gene ids to HUGO gene symbols:
+Map gene ids to HUGO gene symbols and filter:
 ```{r}
-library(tidyverse)
-library(edgeR)
-library(org.Hs.eg.db)
+
 data$gene_id <- sapply(strsplit(data$gene_id,"\\."), `[`, 1)
 ens2symbol <- AnnotationDbi::select(org.Hs.eg.db,
                                     key=data$gene_id, 
@@ -67,6 +71,24 @@ keep <- res %>%
   select(starts_with("d"))%>%
   cpm() %>%
   rowSums(.>1) >= 8
-resFilt = res[keep,]
+resFilt <- res[keep,]
+# create groups matrix:
+g <- unlist(strsplit(colnames(res)[2:9], split="_"))
+days <- sapply(g, `[`, 1)
+days <- sapply(strsplit(days, split="d"), `[`, 2)
+sample <- sapply(g, `[`, 2)
+expDesign <- (cbind(as.numeric(days), as.numeric(sample)))
+expDesign <- as.data.frame(expDesign)
+rownames(expDesign) <- colnames(res)[2:9]
+colnames(expDesign) <- c("day", "replicate")
+# normalization:
+d <- DGEList(as.matrix(res[,2:9]), group=expDesign$day)
+dnorm <- calcNormFactors(d)
+```
+Try mapping with this: https://support.bioconductor.org/p/87454/
+and also read paper to see how authors mapped it
+```{r}
+
+
 ```
 
