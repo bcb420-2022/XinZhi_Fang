@@ -2,16 +2,14 @@
 title: "BCB420 Assignment 1"
 output: html_notebook
 ---
-
-This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
-
-Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
-
+Set up and download dataset:
 ```{r}
 if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 if (!requireNamespace("GEOmetadb", quietly = TRUE))
     BiocManager::install("GEOmetadb")
+if (!requireNamespace("edgeR", quietly = TRUE))
+    BiocManager::install("edgeR")
 library(GEOmetadb)
 if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
 con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
@@ -32,26 +30,43 @@ sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,",
 rs <- dbGetQuery(con,sql)
 dim(rs)
 ds <- "GSE119315"
+# Download data
 sfiles = getGEOSuppFiles(ds)
-fnames = rownames(sfiles)
-fnames[1] <- strsplit(fnames[1], split=".tar")[[1]][[1]]
-fnames <- paste(fnames[1], "GSM3369819_d4_1.txt.gz", sep="/")
-# there is only one supplemental file
-b <- read.delim(fnames,header=TRUE)
 
+# read in data
+dirname = rownames(sfiles)
+dirname <- strsplit(dirname[1], split=".tar")[[1]][[1]]
+files <- system(paste("ls", dirname, sep=" "), intern=TRUE)
+files<- paste(dirname, files, sep="/")
+
+data <- files %>%
+  map(read.delim) %>%
+  bind_cols
+print(data)
+# remove duplicate gene id columns
+data <- data %>% 
+  select(c(ends_with("...1"), starts_with("d"))) %>%
+  rename(gene_id = gene_id...1)
 
 ```
-\
 
+Map gene ids to HUGO gene symbols:
 ```{r}
 library(tidyverse)
+library(edgeR)
 library(org.Hs.eg.db)
-b$gene_id <- sapply(strsplit(b$gene_id,"\\."), `[`, 1)
+data$gene_id <- sapply(strsplit(data$gene_id,"\\."), `[`, 1)
 ens2symbol <- AnnotationDbi::select(org.Hs.eg.db,
-                                    key=b$gene_id, 
+                                    key=data$gene_id, 
                                     columns="SYMBOL",
                                     keytype="ENSEMBL")
 ens2symbol <- as_tibble(ens2symbol)
 ens2symbol
+res <- inner_join(data, ens2symbol, by=c("gene_id"="ENSEMBL"))
+keep <- res %>% 
+  select(starts_with("d"))%>%
+  cpm() %>%
+  rowSums(.>1) >= 8
+resFilt = res[keep,]
 ```
 
