@@ -1,0 +1,57 @@
+---
+title: "BCB420 Assignment 1"
+output: html_notebook
+---
+
+This is an [R Markdown](http://rmarkdown.rstudio.com) Notebook. When you execute code within the notebook, the results appear beneath the code. 
+
+Try executing this chunk by clicking the *Run* button within the chunk or by placing your cursor inside it and pressing *Cmd+Shift+Enter*. 
+
+```{r}
+if (!requireNamespace("BiocManager", quietly = TRUE))
+    install.packages("BiocManager")
+if (!requireNamespace("GEOmetadb", quietly = TRUE))
+    BiocManager::install("GEOmetadb")
+library(GEOmetadb)
+if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
+con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
+geo_tables <- dbListTables(con)
+geo_tables
+
+sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,",
+             " gse.submission_date,",
+             " gse.supplementary_file",
+             "FROM",
+             "  gse JOIN gse_gpl ON gse_gpl.gse=gse.gse",
+             "  JOIN gpl ON gse_gpl.gpl=gpl.gpl",
+             "WHERE",
+             "  gse.submission_date > '2017-01-01' AND",
+             "  gpl.organism LIKE '%Homo sapiens%' AND",
+             "  gpl.technology LIKE '%high-throughput seq%' ",
+             sep=" ")
+rs <- dbGetQuery(con,sql)
+dim(rs)
+ds <- "GSE119315"
+sfiles = getGEOSuppFiles(ds)
+fnames = rownames(sfiles)
+fnames[1] <- strsplit(fnames[1], split=".tar")[[1]][[1]]
+fnames <- paste(fnames[1], "GSM3369819_d4_1.txt.gz", sep="/")
+# there is only one supplemental file
+b <- read.delim(fnames,header=TRUE)
+
+
+```
+\
+
+```{r}
+library(tidyverse)
+library(org.Hs.eg.db)
+b$gene_id <- sapply(strsplit(b$gene_id,"\\."), `[`, 1)
+ens2symbol <- AnnotationDbi::select(org.Hs.eg.db,
+                                    key=b$gene_id, 
+                                    columns="SYMBOL",
+                                    keytype="ENSEMBL")
+ens2symbol <- as_tibble(ens2symbol)
+ens2symbol
+```
+
