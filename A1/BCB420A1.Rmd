@@ -1,102 +1,321 @@
 ---
 title: "BCB420 Assignment 1"
+author: Xin Zhi Fang
 output: html_notebook
 ---
+## Introduction:
+Septic shock, or sepsis, is a severe, often deadly disease that affects both developing and developed countries, arising from untreated infection. Sepsis can occur in healthcare settings and is one of the most common adverse events for patients in hospitals (1). Unfortunately, sepsis can be difficult to treat due to antibiotic resistance, as well as different response in patients to treatment. To further explore the response of individuals to sepsis treatment, 31 patients treated for sepsis underwent whole blood RNA sequencing. Of these 31 patients, 17 responded to treatment (R), and 14 did not respond (NR). The sequencing was performed at two time points: upon ICU admission (T1), and 48h after ICU admission (T2). After being admitted to the ICU, the patients received hemodynamic therapy as treatment for sepsis (2).
+
+This dataset is of interest as discovering the underlying expression differences in Responders versus Non-Responders can lead to improved treatment and care options for sepsis patients in the future. Different approaches can be used for Non-Responders to hemodynamic therapy, and thus improve patient outcomes.
+
+The test conditions for the dataset are whether the patients are Responders or Non-Responders. The control conditions include the sepsis treatment received by the patients, the time at which sequencing was performed, and physiological conditions of the patients (i.e. concentration or arterial lactate). As well, patients with certain illnesses (i.e. metastatic cancers) and terminal conditions were excluded.
+
+For the experimental groups R and NR, there were 17 and 14 biological replicates respectively at each time point. The biological replicates come from different patients. There are also no technical replicates in this dataset. The replicates in the two time points come from the same patients, thus each of the replicates are paired.
+
 Set up and download dataset:
-```{r}
-if (!requireNamespace("BiocManager", quietly = TRUE))
+```{r include=TRUE}
+suppressWarnings({if (!requireNamespace("BiocManager", quietly = TRUE))
     install.packages("BiocManager")
 if (!requireNamespace("GEOmetadb", quietly = TRUE))
     BiocManager::install("GEOmetadb")
+if (!requireNamespace("limma", quietly = TRUE))
+    BiocManager::install("limma")
+if (!requireNamespace("AnnotationDbi", quietly = TRUE))
+    BiocManager::install("AnnotationDbi")
+if (!requireNamespace("org.Hs.eg.db", quietly = TRUE))
+    BiocManager::install("org.Hs.eg.db")
 if (!requireNamespace("edgeR", quietly = TRUE))
     BiocManager::install("edgeR")
+if (!requireNamespace("readxl", quietly = TRUE))
+    BiocManager::install("readxl")
+if (!requireNamespace("RColorBrewer", quietly = TRUE))
+    install.packages("RColorBrewer")
+if (!requireNamespace("tidyverse", quietly = TRUE))
+    install.packages("tidyverse")
+if (!requireNamespace("ggplot2", quietly = TRUE))
+    install.packages("ggplot2")
+if (!requireNamespace("dplyr", quietly = TRUE))
+    install.packages("dplyr")})
 suppressPackageStartupMessages({
   library(tidyverse)
-library(edgeR)
-library(org.Hs.eg.db)
-library(GEOmetadb)
+  library(edgeR)
+  library(org.Hs.eg.db)
+  library(GEOmetadb)
+  library(RColorBrewer)
+  library(ggplot2)
+  library(readxl)
+  library(dplyr)
+  library(AnnotationDbi)
+  library(limma)
 })
-
-if(!file.exists('GEOmetadb.sqlite')) getSQLiteFile()
-con <- dbConnect(SQLite(),'GEOmetadb.sqlite')
-geo_tables <- dbListTables(con)
-geo_tables
-
-sql <- paste("SELECT DISTINCT gse.title,gse.gse, gpl.title,",
-             " gse.submission_date,",
-             " gse.supplementary_file",
-             "FROM",
-             "  gse JOIN gse_gpl ON gse_gpl.gse=gse.gse",
-             "  JOIN gpl ON gse_gpl.gpl=gpl.gpl",
-             "WHERE",
-             "  gse.submission_date > '2017-01-01' AND",
-             "  gpl.organism LIKE '%Homo sapiens%' AND",
-             "  gpl.technology LIKE '%high-throughput seq%' ",
-             sep=" ")
-rs <- dbGetQuery(con,sql)
-dim(rs)
-ds <- "GSE119315"
+ds <- "GSE110487"
 # Download data
-sfiles = getGEOSuppFiles(ds)
+if (!file.exists("/Users/cindyfang/Documents/UofT/FourthYear/BCB420/XinZhi_Fang/A1/GSE110487/GSE110487_rawcounts.xlsx")){sfiles = getGEOSuppFiles(ds)}
+# sfiles <- "/Users/cindyfang/Documents/UofT/FourthYear/BCB420/XinZhi_Fang/A1/GSE110487/GSE110487_rawcounts.xlsx"
+sfiles <- rownames(sfiles)[[1]]
 
-# read in data
-dirname = rownames(sfiles)
-dirname <- strsplit(dirname[1], split=".tar")[[1]][[1]]
-files <- system(paste("ls", dirname, sep=" "), intern=TRUE)
-files<- paste(dirname, files, sep="/")
-
-data <- files %>%
-  map(read.delim) %>%
-  bind_cols
-print(data)
-# remove duplicate gene id columns
-data <- data %>% 
-  select(c(ends_with("...1"), starts_with("d"))) %>%
-  rename(gene_id = gene_id...1)
-
+# sfiles <- "/Users/cindyfang/Documents/UofT/FourthYear/BCB420/XinZhi_Fang/A1/GSE110487/GSE110487_rawcounts.xlsx"
+# read in counts data
+data <- suppressWarnings(read_excel(sfiles))
+# read in SRA run table 
+expDesign <- read.delim("SraRunTable.txt", sep = ",")
 ```
 
 Map gene ids to HUGO gene symbols and filter:
 ```{r}
-
-data$gene_id <- sapply(strsplit(data$gene_id,"\\."), `[`, 1)
+keep <- data[,2:63] %>% 
+  cpm() %>%
+  rowSums(.>1) >= 62
+dataFilt <- data[keep,]
 ens2symbol <- AnnotationDbi::select(org.Hs.eg.db,
-                                    key=data$gene_id, 
+                                    key=dataFilt$Geneid, 
                                     columns="SYMBOL",
                                     keytype="ENSEMBL")
 ens2symbol <- as_tibble(ens2symbol)
-ens2symbol
-res <- inner_join(data, ens2symbol, by=c("gene_id"="ENSEMBL"))
-keep <- res %>% 
-  select(starts_with("d"))%>%
-  cpm() %>%
-  rowSums(.>1) >= 8
-resFilt <- res[keep,]
+resFilt <- inner_join(dataFilt, ens2symbol, by=c("Geneid"="ENSEMBL"))
+resFilt <- as_tibble(resFilt)
 
+sum(is.na(resFilt$SYMBOL))/nrow(resFilt) # proportion of genes that could not be mapped
 ```
-Try mapping with this: https://support.bioconductor.org/p/87454/
-and also read paper to see how authors mapped it
-Normalize the counts:
+Based on the output of the above chunk, we can see that around 5.5% of the filtered genes could not be mapped to HGNC symbols. Unfortunately, the original dataset did not come with HGNC symbols or any other information for the genes. The unmapped genes have been retained for the downstream analyses of this assignment, but may need to be dropped later on for GSEA as genes in pathways are usually named using HGNC symbols.
+
+Create the groups matrix based on response for normalization later on, and clean the data:
 ```{r}
 # create groups matrix:
-g <- unlist(strsplit(colnames(res)[2:9], split="_"))
-days <- sapply(g, `[`, 1)
-days <- sapply(strsplit(days, split="d"), `[`, 2)
-sample <- sapply(g, `[`, 2)
-expDesign <- (cbind(as.numeric(days), as.numeric(sample)))
-expDesign <- as.data.frame(expDesign)
-rownames(expDesign) <- colnames(res)[2:9]
-colnames(expDesign) <- c("day", "replicate")
-# normalization:
-d <- DGEList(as.matrix(res[,2:9]), group=expDesign$day)
-dnorm <- calcNormFactors(d)
-normCounts <- cpm(dnorm)
+expGroups <- as.data.frame(cbind(response = expDesign$clinical_classification, timepoint=expDesign$timepoint, patient=expDesign$Patient))
+
+# Some experimental design information was incorrectly entered in the downloaded metadata file, so this information was manually entered based on paper figures:
+expGroups <- as.data.frame(rbind(expGroups, c("R", "T1", "E32"), c("R", "T1", "G28"),c("R", "T1", "G45"), c("R", "T2", "E32"),c("R", "T2", "G28"),c("R", "T2", "G45"), c("NR", "T1", "G01"), c("NR", "T2", "G01"), c("R", "T1", "G07"), c("R", "T2", "G07"), c("NR", "T1", "G08"), c("NR", "T2", "G08")))
+
+# metadata included some duplicates
+expGroups <- distinct(expGroups)
+sampleNames <- paste(expGroups$patient, expGroups$timepoint, sep="")
+rownames(expGroups) <- sampleNames
+
+#split groups matrix into day 1 and day 2:
+expGroups <- as_tibble(t(expGroups))
+expGroups1 <- expGroups %>%
+  dplyr::select(ends_with("T1"))
+expGroups2 <- expGroups %>%
+  dplyr::select(ends_with("T2"))
+#Split data up by timepoint
+day1Data <- resFilt %>%
+  as_tibble()%>%
+  dplyr::select(!ends_with("T2"))
+day2Data <- resFilt %>%
+  as_tibble()%>%
+  dplyr::select(!ends_with("T1"))
+# Clean up groups matrices
+expGroups1 <- t(expGroups1)
+colnames(expGroups1) <- c("response", "timepoint", "patient")
+expGroups1 <- as.data.frame(expGroups1[match(colnames(day1Data)[2:32], rownames(expGroups1)),])
+expGroups1$name <- rownames(expGroups1)
+
+expGroups2 <- t(expGroups2)
+colnames(expGroups2) <- c("response", "timepoint", "patient")
+expGroups2 <- as.data.frame(expGroups2[match(colnames(day2Data)[2:32], rownames(expGroups2)),])
+expGroups2$name <- rownames(expGroups2)
+
+day1Data <- distinct(day1Data, SYMBOL, .keep_all = TRUE)
+day2Data <- distinct(day2Data, SYMBOL, .keep_all = TRUE)
+
+day1Data <- day1Data[-which(is.na(day1Data$SYMBOL)),]
+day2Data <- day2Data[-which(is.na(day2Data$SYMBOL)),]
+
+finalDay1Data <- as.data.frame(day1Data)
+rownames(finalDay1Data) <- finalDay1Data$SYMBOL
+finalDay1Data$SYMBOL <- NULL
+
+finalDay2Data <- as.data.frame(day2Data)
+rownames(finalDay2Data) <- finalDay2Data$SYMBOL
+finalDay2Data$SYMBOL <- NULL
+
+```
+The original dataset was split into two sub-datasets, time point 1 and time point 2. This allows for the comparison of the R and NR groups both before and after treatment. A similar splitting was done by the authors of the study.
+## Exploratory data analysis
+```{r}
+# create dataframes for plotting
+day1bp <- stack(as.data.frame(log2(cpm(day1Data[,2:32]))))
+day1bp <- merge(day1bp, expGroups1, by.x="ind", by.y="name")
+
+day2bp <- stack(as.data.frame(log2(cpm(day2Data[,3:32]))))
+day2bp <- merge(day2bp, expGroups2, by.x="ind", by.y="name")
+# Plot timepoint 1 and timepoint 2 boxplots of log2 cpm
+day1box<- ggplot(day1bp, aes(x=ind, y=values, fill=response))+
+  geom_boxplot()+
+  xlab("Sample")+
+  ylab("Log2 CPM")+
+  ggtitle("RNAseq for Patients at Time Point 1")+
+  theme(axis.text.x = element_text(angle = 90))
+day2box <- ggplot(day2bp, aes(x=ind, y=values, fill=response))+
+  geom_boxplot()+
+  xlab("Sample")+
+  ylab("Log2 CPM")+
+  ggtitle("RNAseq for Patients at Time Point 2")+
+  theme(axis.text.x = element_text(angle = 90))
+day1box
+day2box
+```
+Based on the above boxplots, tnere seem to be many outliers for each sample. As well, there were many infinite values that were automatically removed by ggplot. Outliers will be retained in the datasets as there is no indication that they are due to measurement error, so we cannot be sure that they don't represent biological variation. However, the infinite values have to be dropped as they cannot be handled in downstream analyses.
+The boxplots also show that the median log2 CPM does not seem to differ much between the NR and R groups at both time points. However, this does not necessarily mean that there is no expression variation between the groups because specific genes may be expressed to different extents in the two groups, which would not be visible in the boxplots.
+
+Density plots:
+```{r}
+day1dens <- ggplot(data=day1bp, aes(x=values, group=patient, col=patient)) +
+    geom_density(adjust=1.5, alpha=.4)+
+    ylab("Smoothing density of log2 CPM")+
+    ggtitle("Smoothing density of log2 CPM from RNAseq of patients at timepoint 1")+
+    facet_wrap(~response)
+
+
+day2dens <- ggplot(data=day2bp, aes(x=values, group=patient, col=patient)) +
+    geom_density(adjust=1.5, alpha=.4)+
+    ylab("Smoothing density of log2 CPM")+
+    ggtitle("Smoothing density of log2 CPM from RNAseq of patients at timepoint 2")+
+    facet_wrap(~response)
+day1dens
+day2dens
+```
+The above density plots show slight changes in log2 CPM between the two timepoints. It seems that for both R and NR groups, the density between values of 0 to 5 increased at time point 2. This suggests that both groups experienced changes in expression in between the two time points. However, it is not clear if this is a hallmark of the treatment they received or if it is due to the progression of sepsis.
+
+Discard infinite values to create final datasets:
+```{r}
+day1df <- day1Data[!is.infinite(rowSums(log2(cpm(finalDay1Data[,2:32])))),]
+day2df <- day2Data[!is.infinite(rowSums(log2(cpm(finalDay2Data[,2:32])))),]
+
+finalDay1Data <- as.data.frame(finalDay1Data)
+finalDay2Data <- as.data.frame(finalDay2Data)
 ```
 
-Exploratory data analysis:
+MA plots
 ```{r}
-library(RColorBrewer)
-cols <- brewer.pal(n = 8, name = "Dark2")
-plotMDS(dnorm, col=cols[factor(expDesign$day)])
+day1MA <- as.data.frame(cbind(NR=day1bp$values[which(day1bp$response=="NR")], R=day1bp$values[which(day1bp$response=="R")]))
+limma::plotMA(day1MA)
+
+day2MA <- as.data.frame(cbind(NR=day2bp$values[which(day2bp$response=="NR")], R=day2bp$values[which(day2bp$response=="R")]))
+limma::plotMA(day2MA)
 ```
+
+For the MA plots, each of the datasets were combined into two separate groups, R and NR. This is because MA plots are for two separate samples. Due to the high number of replicates in this study, it would not be practical to make all pairwise MA plots. Thus, all R samples from a time point were grouped together and plotted against the NR samples from the same timepoint. Since the condition of interest is Responders vs Non-Responders, grouping the samples like this gives a general overview of the variation between the two groups.
+
+In the plot of time point 2, it seems that the points show more variation in the y-axis (Expression log-ratio). This could indicate that after treatment, there is some variation in expression in Non-Responders versus Responders.
+
+## Normalization
+```{r}
+# normalization:
+d1 <- DGEList(as.matrix(finalDay1Data[,2:32]), group=expGroups1$response)
+dnorm1 <- calcNormFactors(d1, method="TMM")
+normCounts <- cpm(dnorm1)
+
+d2 <- DGEList(as.matrix(finalDay2Data[,2:32]), group=expGroups2$response)
+dnorm2 <- calcNormFactors(d2, method="TMM")
+normCounts <- cpm(dnorm2)
+```
+
+MDS plot:
+```{r}
+cols <- brewer.pal(n = 3, name = "Dark2")
+mds1 <- plotMDS(dnorm1, col=cols[factor(expGroups1$response)], main="MDS plot for time point 1")
+mds2 <- plotMDS(dnorm2, col=cols[factor(expGroups2$response)], main="MDS plot for time point 2")
+
+```
+The multidimensional scaling plots above show that the R and NR groups do not seem to differ significantly in the first two leading dimensions at either time point. However, this does not necessarily mean that the expression of the two groups do not differ at all as we do not know the proportion of variance explained by each of the leading dimensions. If the first two dimensions only explain a very small amount of the overall variance in the datasets, it would make sense to not see the two experimental groups separating from each other in the plots.
+
+An interesting feature of the plot at time point 2 is the large gap between sample E04T2 and the other samples. E04T2 is classified as NR, but it would be interesting to see if this patient has a unique disease or condition that resulted in this large difference in expression.
+Dispersion:
+```{r}
+model_design <- model.matrix(~expGroups1$response)
+disp1 <- estimateDisp(dnorm1, model_design)
+bcv1 <- plotBCV(disp1, col.tagwise="black")
+
+model_design <- model.matrix(~expGroups2$response)
+disp2 <- estimateDisp(dnorm2, model_design)
+bcv2 <- plotBCV(disp2, col.tagwise="black")
+```
+The BCV plots above show that the genes above the red line can be considered as differentially expressed. At both time points, it seems that there is a similar number of differentially expressed genes. This suggests that there may be some inherent expression differences between R and NR groups, as after receiving treatment the same number of genes are differentially expressed. However, since the BCV plots do not tell us which genes are differentially expressed, this hypothesis will have to be tested in downstream analyses.
+
+Mean-variance relationship:
+```{r}
+plotMeanVar(disp1, show.raw.vars = TRUE,
+            show.tagwise.vars=TRUE,
+            NBline=TRUE, show.ave.raw.vars = TRUE,
+            show.binned.common.disp.vars = FALSE)
+
+plotMeanVar(disp1, show.raw.vars = TRUE,
+            show.tagwise.vars=TRUE,
+            NBline=TRUE, show.ave.raw.vars = TRUE,
+            show.binned.common.disp.vars = FALSE)
+```
+
+The mean-variance plots at both time points show that both R and NR groups exhibit similar amounts of variation in their gene expression. This is a useful addition to the BCV plots as we now know that not only does variation in expression not change much between two time points, but also the two experimental groups show similar amounts of variation at both time points. This is seen in the mean-variance plots as the grey and blue points overlap and follow the same general trend.
+
+## Results
+The data was cleaned in order to produce two sub-datasets with HGNC symbols as rownames:
+```{r}
+head(finalDay1Data)
+head(finalDay2Data)
+```
+Unfortunately, 3 of the rownames are not unique: BAZ2B’, ‘GTF2H2C’, ‘OPN3’. The authors of the study also ran into the same problem, and chose to discard these genes. I discarded these genes as well in my final dataset.
+
+The data was also normalized using TMM normalization. I chose this method because normalization based on library size can result in differential expression results being skewed for one experimental condition (13), which would be undesirable when comparing expression in Responders and Non-Responders.
+Plotting the normalized data:
+```{r}
+normdf1 <- as.data.frame(stack(log2(cpm(dnorm1$counts))))
+ggplot(normdf1, aes(x=col, y=value))+
+  geom_boxplot()+
+  xlab("Sample")+
+  ylab("Log2 CPM")+
+  ggtitle("RNAseq for Patients at Time Point 1")+
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplot(data=normdf1, aes(x=value, group=col, col=col)) +
+    geom_density(adjust=1.5, alpha=.4)+
+    ylab("Smoothing density of log2 CPM")+
+    ggtitle("Smoothing density of log2 CPM from Normalized RNAseq of patients at time point 1")
+
+normdf2 <- as.data.frame(stack(log2(cpm(dnorm2$counts))))
+ggplot(normdf2, aes(x=col, y=value))+
+  geom_boxplot()+
+  xlab("Sample")+
+  ylab("Log2 CPM")+
+  ggtitle("RNAseq for Patients at Time Point 2")+
+  theme(axis.text.x = element_text(angle = 90))
+
+ggplot(data=normdf2, aes(x=value, group=col, col=col)) +
+    geom_density(adjust=1.5, alpha=.4)+
+    ylab("Smoothing density of log2 CPM")+
+    ggtitle("Smoothing density of log2 CPM from Normalized RNAseq of patients at time point 2")
+
+```
+
+
+## Interpretation and Discussion
+The final coverage of this dataset after filtering is 12,696 genes, which is around half of the total amount of genes in the human genome. However, around 5% of these genes  did not map to any HGNC symbols, which effectively leaves us with closer to 12,000 genes that can be used in downstream analyses. This is on the lower end of the requisite coverage, but should still be sufficient for enrichment analysis.
+
+Another issue that occurred when mapping to HGNC symbols is that some expression values were mapped to the same symbol. This was addressed by first filtering out lowly expressed genes and then mapping, as lowly expressed genes may be due to technical errors or other issues. However, even after filtering, there were some expression values that mapped to the same symbol. In the end, there were 3 duplicated HGNC symbols. The authors of the study mapped their genes using the GRCh38 human reference genome, and also had multiple expression values mapping to the same symbol. The authors chose to discard these genes. In my mapping, I used the R package org.Hs.eg.db, which is based on the 2020 August UCSC Genome Bioinformatics human genome assembly. After checking the release date of hg38, it seems that it should be the same build as the one used by the authors in the study. Thus, for downstream analyses, I have discarded the genes that were mapped to the same symbols so that enrichment analyses can be run.
+
+In the filtering step, 45400 low count genes were filtered out. The original dataset contained 58096 genes, whereas the filtered dataset contained 12696 genes. This may be considered as discarding outliers, but since these low count genes are likely due to technical conditions, I think it is acceptable to remove them. Other than these, no outliers were removed as it is unclear whether or not they represent biological variation. However, for the plots above, genes with infinite counts after the log 2 CPM transformation were discarded. I think this is a reasonable measure as mathematically it's not possible to handle these genes, so going forward I will be removing them as well.This will result in 884 genes being removed from the time point 1 dataset, and 692 being removed from the time point 2 dataset.
+
+
+## Conclusion
+In this assignment, the selected dataset was cleaned, filtered, and normalized. As well, exploratory data analysis was performed in order to determine possible trends in the data. Based on these initial results, we cannot say conclusively whether there are significant differences in expression between the R and NR groups at either time point. However, it will be exciting to see what results from enrichment analyses, as finding differences in expression between Responders and Non-Responders to hemotherapy treatment can lead to the development of other treatments for sepsis.
+
+## References
+1. Sepsis. (2022). Retrieved 15 February 2022, from https://www.who.int/news-room/fact-sheets/detail/sepsis
+2. Barcella, M., Bollen Pinto, B., Braga, D., D’Avila, F., Tagliaferri, F., & Cazalis, M. et al. (2018). Identification of a transcriptome profile associated with improvement of organ function in septic shock patients after early supportive therapy. Critical Care, 22(1). doi: 10.1186/s13054-018-2242-3
+3.Zhu Y, Davis S, Stephens R, Meltzer PS, Chen Y. GEOmetadb: powerful alternative search engine for the Gene Expression Omnibus. Bioinformatics. 2008 Dec 1;24(23):2798-800. doi:10.1093/bioinformatics/btn520. Epub 2008 Oct 7. PubMed PMID: 18842599; PubMed Central PMCID:PMC2639278.
+4. Ritchie, M.E., Phipson, B., Wu, D., Hu, Y., Law, C.W., Shi, W., and Smyth, G.K. (2015). limma powers differential expression analyses for RNA-sequencing and microarray studies. Nucleic Acids Research 43(7), e47.
+5. Hervé Pagès, Marc Carlson, Seth Falcon and Nianhua Li (2020). AnnotationDbi: Manipulation of SQLite-based annotations in Bioconductor. R package version 1.52.0. https://bioconductor.org/packages/AnnotationDbi
+6. Marc Carlson (2020). org.Hs.eg.db: Genome wide annotation for Human. R package version 3.12.0.
+7. Robinson MD, McCarthy DJ and Smyth GK (2010). edgeR: a Bioconductor package for differential expression analysis of digital gene expression data. Bioinformatics 26, 139-140
+8. Hadley Wickham and Jennifer Bryan (2019). readxl: Read Excel Files. R package version 1.3.1. https://CRAN.R-project.org/package=readxl
+9. Erich Neuwirth (2014). RColorBrewer: ColorBrewer Palettes. R package version 1.1-2. https://CRAN.R-project.org/package=RColorBrewer
+10. Wickham et al., (2019). Welcome to the tidyverse. Journal of Open Source Software, 4(43), 1686, https://doi.org/10.21105/joss.01686
+11. H. Wickham. ggplot2: Elegant Graphics for Data Analysis. Springer-Verlag New York, 2016.
+12. Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2022). dplyr: A Grammar of Data Manipulation. R package version 1.0.8.
+https://CRAN.R-project.org/package=dplyr
+13. Robinson, M., & Oshlack, A. (2010). A scaling normalization method for differential expression analysis of RNA-seq data. Genome Biology, 11(3), R25. doi: 10.1186/gb-2010-11-3-r25
+
+
+
 
