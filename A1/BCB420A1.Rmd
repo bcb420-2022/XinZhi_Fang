@@ -215,8 +215,8 @@ normCounts <- cpm(dnorm2)
 MDS plot:
 ```{r}
 cols <- brewer.pal(n = 3, name = "Dark2")
-mds1 <- plotMDS(dnorm1, col=cols[factor(expGroups1$response)], main="MDS plot for time point 1")
-mds2 <- plotMDS(dnorm2, col=cols[factor(expGroups2$response)], main="MDS plot for time point 2")
+plotMDS(dnorm1, col=cols[factor(expGroups1$response)], main="MDS plot for time point 1")
+plotMDS(dnorm2, col=cols[factor(expGroups2$response)], main="MDS plot for time point 2")
 
 ```
 The multidimensional scaling plots above show that the R and NR groups do not seem to differ significantly in the first two leading dimensions at either time point. However, this does not necessarily mean that the expression of the two groups do not differ at all as we do not know the proportion of variance explained by each of the leading dimensions. If the first two dimensions only explain a very small amount of the overall variance in the datasets, it would make sense to not see the two experimental groups separating from each other in the plots.
