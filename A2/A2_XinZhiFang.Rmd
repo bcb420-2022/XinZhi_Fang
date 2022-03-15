@@ -13,8 +13,8 @@ The dataset selected for this assignment consists of 31 sepsis patients that und
 
 The experimental conditions of interest are whether the patients are Responders or Non-Responders, as we are interested in evaluating gene expression differences and how different treatments may be appropriate based on a patient's gene expression.
 
-![T1 Expression](./normExpr.png)
-![T2 Expression](./normExpr1.png)
+![T1 Expression](./figures/normExpr.png)
+![T2 Expression](./figures/normExpr1.png)
 Figure 1: Density plots of normalized expression of all patients at T1 and T2.
 
 ```{r setup, include=FALSE}
@@ -42,7 +42,9 @@ if (!requireNamespace("ggplot2", quietly = TRUE))
 if (!requireNamespace("dplyr", quietly = TRUE))
     install.packages("dplyr")
 if (!requireNamespace("gprofiler2", quietly = TRUE))
-    install.packages("gprofiler2")})
+    install.packages("gprofiler2")
+if (!requireNamespace("ComplexHeatmap", quietly = TRUE))
+    install.packages("ComplexHeatmap")})
 suppressPackageStartupMessages({
   library(tidyverse)
   library(edgeR)
