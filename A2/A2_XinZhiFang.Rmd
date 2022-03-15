@@ -1,8 +1,10 @@
 ---
-title: "Assignment 2: Differential Gene expression and Preliminary ORA"
+title: "Assignment 2: Differential Gene Expression and Preliminary ORA"
 author: "Xin Zhi Fang"
 date: "14/03/2022"
-output: html_document
+output: 
+  html_document:
+    toc: true
 ---
 ## Introduction
 Septic shock is one of the most common adverse events to occur to patients in hospitals (1). This disease, resultant from infection, is often deadly, and is prevalent in both developing and developed countries. Due to a variety of patient-specific factors such as antibiotic resistance, sepsis can be difficult to treat. This leads to the question of whether gene expression differences can be seen in patients that respond well to sepsis treatments, compared to those that do not.
@@ -53,23 +55,8 @@ suppressPackageStartupMessages({
   library(AnnotationDbi)
   library(limma)
 })
-sfiles <- "/Users/cindyfang/Documents/UofT/FourthYear/BCB420/XinZhi_Fang/A1/GSE110487/GSE110487_rawcounts.xlsx"
-# read in counts data
-data <- suppressWarnings(read_excel(sfiles))
 # read in SRA run table 
-expDesign <- read.delim("/Users/cindyfang/Documents/UofT/FourthYear/BCB420/XinZhi_Fang/A1/SraRunTable.txt", sep = ",")
-
-keep <- data[,2:63] %>% 
-  cpm() %>%
-  rowSums(.>1) >= 62
-dataFilt <- data[keep,]
-ens2symbol <- AnnotationDbi::select(org.Hs.eg.db,
-                                    key=dataFilt$Geneid, 
-                                    columns="SYMBOL",
-                                    keytype="ENSEMBL")
-ens2symbol <- as_tibble(ens2symbol)
-resFilt <- inner_join(dataFilt, ens2symbol, by=c("Geneid"="ENSEMBL"))
-resFilt <- as_tibble(resFilt)
+expDesign <- read.delim("./SraRunTable.txt", sep = ",")
 
 # create groups matrix:
 expGroups <- as.data.frame(cbind(response = expDesign$clinical_classification, timepoint=expDesign$timepoint, patient=expDesign$Patient))
@@ -88,24 +75,16 @@ expGroups1 <- expGroups %>%
   dplyr::select(ends_with("T1"))
 expGroups2 <- expGroups %>%
   dplyr::select(ends_with("T2"))
-#Split data up by timepoint
-day1Data <- resFilt %>%
-  as_tibble()%>%
-  dplyr::select(!ends_with("T2"))
-day2Data <- resFilt %>%
-  as_tibble()%>%
-  dplyr::select(!ends_with("T1"))
-# Clean up groups matrices
+
 expGroups1 <- t(expGroups1)
 colnames(expGroups1) <- c("response", "timepoint", "patient")
-expGroups1 <- as.data.frame(expGroups1[match(colnames(day1Data)[2:32], rownames(expGroups1)),])
+expGroups1 <- as.data.frame(expGroups1)
 expGroups1$name <- rownames(expGroups1)
 
 expGroups2 <- t(expGroups2)
 colnames(expGroups2) <- c("response", "timepoint", "patient")
-expGroups2 <- as.data.frame(expGroups2[match(colnames(day2Data)[2:32], rownames(expGroups2)),])
+expGroups2 <- as.data.frame(expGroups2)
 expGroups2$name <- rownames(expGroups2)
-
 ```
 
 ## Differential Gene Expression
@@ -169,7 +148,7 @@ output_hits2 <- output_hits2[order(output_hits2$P.Value),]
 knitr::kable(output_hits2[1:10,],type="html",row.names = FALSE)
 ```
 
-1. After calculating p-values for the genes in my expression set, I found that there were 379 DE genes in the time point 1 data, and 1774 DE genes in the time point 2 data. This is using a p-value of 0.05, which was selected because it allowed for a reasonable number of genes to be "significant" at each time point. A more lenient threshold would result in too many genes (statistically less rigorous, and difficult to work with), and a more stringent threshold may result in fewer significant pathways being found downstream.
+1. After calculating p-values for the genes in my expression set, I found that there were 379 DE genes in the T1 data, and 1774 DE genes in the T1 data. This is using a p-value of 0.05, which was selected because it allowed for a reasonable number of genes to be "significant" at each time point. A more lenient threshold would result in too many genes (statistically less rigorous, and difficult to work with), and a more stringent threshold may result in fewer significant pathways being found downstream.
 
 2. To correct my p-values, I used the Benjamini-Hochberg method, as this was what was used by the authors of the original paper as well. This method is known to be less stringent than the Bonferroni method, which I think is desirable for this dataset as the nuances between the R and NR groups may be relatively small.
 ```{r}
@@ -182,7 +161,7 @@ length(which(output_hits2$adj.P.Val < 0.05))
 Unfortunately, after correcting the P-values, none of the genes pass correction.
 
 3. Volcano plot:
-```{r, }
+```{r, fig.cap="Figure 2: Volcano plots of DE genes"}
 tp1MA <- tp1 %>%
   rownames_to_column("gene") %>%
   pivot_longer(cols=colnames(tp1), names_to="name", values_to="expr")%>%
@@ -216,8 +195,9 @@ ggplot(as.data.frame(tp2MA), aes(x=logFC, y=-log10(P.Value), colour=as.factor(Re
   geom_point()+
   ggtitle("Volcano Plot for T2 Expression")
 ```
+\newline
 4. Heatmaps of top hits:
-```{r, fig.cap="Heatmaps of expression values for DE genes across all patients at T1"}
+```{r}
 suppressPackageStartupMessages(library(ComplexHeatmap)) 
 
 signifGenes <- output_hits1$x[which(output_hits1$P.Value < 0.05)]
@@ -251,11 +231,11 @@ hm2 <- ComplexHeatmap::Heatmap(as.matrix(signifExpr2),
 
 ```
 
-```{r, fig.cap="Heatmaps of expression values for DE genes across all patients at T1"}
+```{r, fig.cap="Figure 3A: Heatmaps of expression values for DE genes across all patients at T1"}
 hm1
 ```
 
-```{r, fig.cap="Heatmaps of expression values for DE genes across all patients at T2"}
+```{r, fig.cap="Figure 3B: Heatmaps of expression values for DE genes across all patients at T2"}
 hm2 
 ```
 
@@ -276,7 +256,7 @@ tp2Downreg <- tp2Sig[which(tp2Sig$logFC < 0),]
 ```
 
 Use g:profiler for ORA:
-```{r pressure, message=FALSE, fig.cap="Manhattan Plot of ORA results for all DE genes at T1"}
+```{r pressure, message=FALSE, warning=FALSE, fig.cap="Figure 4A: Manhattan Plot of ORA results for all DE genes at T1"}
 suppressPackageStartupMessages(library(gprofiler2))
 
 gostrestp1 <- gost(tp1Sig$x, sources=c("GO:BP", "GO:MF", "GO:CC", "KEGG"))
@@ -290,22 +270,31 @@ gostrestp2Down <- gost(tp2Downreg$x, sources=c("GO:BP", "GO:MF", "GO:CC", "KEGG"
 gostplot(gostrestp1)
 ```
 
-```{r, fig.cap="Manhattan Plot of ORA results for all DE genes at T2"}
+```{r, fig.cap="Figure 4B: Manhattan Plot of ORA results for all DE genes at T2"}
 gostplot(gostrestp2)
 ```
 
-```{r, fig.cap="Manhattan Plot of ORA results for upregulated and downregulated genes at T1"}
+```{r, fig.cap="Figure 4C: Manhattan Plots of ORA results for upregulated genes at T1"}
 gostplot(gostrestp1Up)
+
+```
+
+```{r, fig.cap="Figure 4D: Manhattan Plots of ORA results for downregulated genes at T1"}
 gostplot(gostrestp1Down)
 ```
 
 
-```{r, fig.cap="Manhattan Plot of ORA results for upregulated and downregulated genes at T2"}
+```{r, fig.cap="Figure 4E: Manhattan Plots of ORA results for upregulated genes at T2"}
 gostplot(gostrestp2Up)
+
+```
+
+```{r, fig.cap="Figure 4F: Manhattan Plots of ORA results for downregulated genes at T2"}
 gostplot(gostrestp2Down)
 ```
 
-```{r, fig.cap="Manhattan Plots of ORA results for T1 and T2, using threshold of 0.001"}
+
+```{r, fig.cap="Figure 4G: Manhattan Plots of ORA results for T1, using threshold of 0.001"}
 gostrestp1 <- gost(tp1Sig$x, 
                    sources=c("GO:BP", "GO:MF", "GO:CC", "KEGG"), 
                    user_threshold = 0.001)
@@ -314,23 +303,30 @@ gostrestp2 <- gost(tp2Sig$x,
                    sources=c("GO:BP", "GO:MF", "GO:CC", "KEGG"), 
                    user_threshold = 0.001)
 gostplot(gostrestp1)
+
+```
+
+```{r, fig.cap="Figure 4H: Manhattan Plots of ORA results T2, using threshold of 0.001"}
 gostplot(gostrestp2)
 ```
 
+
 1. For my over representation analysis, I chose to use the gprofiler2 R package. I found g:Profiler very convenient to use in the journal assignment. As well, I thought that g:profiler was extremely thorough as it allows your to compare your gene list to multiple different databases at once. You can also adjust your significance thresholds.
 
-2. The annotation sources used in this analysis are GO: Molecular Functions, GO: Cellular Components, GO: Biological Pathways, and KEGG. These were selected because the authors of the original paper used a tool called ClueGO, which is a plugin for Cytoscape (cite). Since Cytoscape was not used in my assignment, I instead used the datasets that make up ClueGO directly, which are GO and KEGG. [Dataset versions?]
+2. The annotation sources used in this analysis are GO: Molecular Functions, GO: Cellular Components, GO: Biological Pathways, and KEGG. These were selected because the authors of the original paper used a tool called ClueGO, which is a plugin for Cytoscape (Bindea et al., 2009). Since Cytoscape was not used in my assignment, I instead used the datasets that make up ClueGO directly, which are GO and KEGG. I believe g:profiler uses the most up to date versions of GO and KEGG, as the g:profiler website was last updated in February of this year. The R package is supposed to return the same results as using the website, so the results above should also be using the most recent versions of the annotation sources.
 
-3. With the default thresholding values from gost (p < 0.05), 49 pathways were returned for the time point 1 gene list, and 278 pathways were returned for the time point 2 gene list. The authors used a thresholding value of 0.001. When this was applied in my assignment, 8 pathways were returned for the time point 1 gene list, and 166 pathways were returned for the time point 2 gene list. Albeit, this threshold was used on a slightly different method (ClueGO from Cytoscape), and the authors had different upstream pre-processing than what was done in this assignment.
+3. With the default thresholding values from gost (p < 0.05), 49 pathways were returned for the T1 gene list, and 278 pathways were returned for the T2 gene list. The authors used a thresholding value of 0.001. When this was applied in my assignment, 8 pathways were returned for the T1 gene list, and 166 pathways were returned for the T2 gene list. Albeit, this threshold was used on a slightly different method (ClueGO from Cytoscape), and the authors had different upstream pre-processing than what was done in this assignment.
+
+4. For each of the two time points, the ORA was run again for the up- and downregulated gene sets. At T1, none of the pathways were above the threshold when considering the entire set of DE genes. The same is true when only considering up- and downregulated genes individually. At T2, when considering the entire gene list, there are many pathways that are above the threshold. However, the downregulated genes have much fewer pathways that pass the threshold. There are only two, which are protein binding and cytosol related pathways. The pathways that pass the threshold when only considering the up- or downregulated genes seem to be subsets of the pathways that pass the threshold when considering all genes. The results may be different in these cases because the background genes that are being considered are different in each set.
 
 ## Interpretation
 1. In the original paper, the authors found that there were no significantly DE genes in the R and NR groups. However, in my analysis, I was able to find about 300 significnatly DE genes between the two groups. It is important to note that my pre-processing steps such as normalization may have differed from that of the author's, as they did not disclose their full methods in the paper or their supplementary methods. 
 
-As well, the authors specified a slightly different model than mine. They split the data into two groups based on response to treatment (R vs NR), and specified the model (counts ~ patient + timepoint) for each group. In my analysis, I split the data into two groups based on time point, and specified the model (counts ~ response) for each timepoint. Although it is difficult to compare the two approaches, it is interesting to note that both my analysis and the paper found more significantly up/downregulated pathways at the second time point. Moreover, the heatmap plotted by the authors for the DE genes tehy found followed an extremely similar pattern as my heatmaps. This suggests that although the two analyses had different results, they may have found the same overall patterns in the data.
+As well, the authors specified a slightly different model than mine. They split the data into two groups based on response to treatment (R vs NR), and specified the model (counts ~ patient + timepoint) for each group. In my analysis, I split the data into two groups based on time point, and specified the model (counts ~ response) for each timepoint. Although it is difficult to compare the two approaches, it is interesting to note that both my analysis and the paper found more significantly up/downregulated pathways at the second time point. Moreover, the heatmap plotted by the authors for the DE genes they found followed an extremely similar pattern as my heatmaps. This suggests that although the two analyses had different results, they may have found the same overall patterns in the data.
 
 However, one issue with my analysis is that the pathways that it found to be significant are not the same as those found by the authors. The authors found immune-related pathways to be significant, which were not found in my analyses. The pathways found to be significant in my assignment were related to cellular metabolic processes and cell death. Again, this may be due to their use of Cytoscape, as their method seems to perform grouping of terms, which was not done in my assignment. It is also possible that the GO and KEGG datasets have been updated since the paper was published.
 
-2. 
+2. One of the upregulated pathways at T2 is biosynthetic processes. This suggests that biosynthetic processes are upregulated in R patients after receiving treatment. This is supported by literature as one of the effects of septic shock is protein catabolism (Englert and Rogers, 2016). If the R patients have their biosynthetic process pathways upregulated, this indicates that they are likely recovering from septic shock. Another upregulated pathway at T2 is organonitrogen substance biosynthetic process. Due to protein breakdown during septic shock, patients generally exhibit a negative nitrogen balance (Englert and Rogers, 2016). If organonitrogen production is upregulated in R patients, this further indicates that they are recovering, which is in line with the original study's designation.
 
 ## Discussion
 One area of interest in this assignment is the specification of the linear model. Since I was interested in exploring the differences in expression between the R and NR groups, I split the dataset into two based on the time point at which the data was collected. Then, I specified my model as (counts ~ response). The patient variable was not included in the model. This is because including the patient variable in the linear model from limma resulted in NA coefficients for one of the variables in the model. This suggests that the response variable may be collinear with the patient variable, and thus would be redundant to include both.
@@ -350,3 +346,9 @@ One area of interest in this assignment is the specification of the linear model
 12. Hadley Wickham, Romain François, Lionel Henry and Kirill Müller (2022). dplyr: A Grammar of Data Manipulation. R package version 1.0.8.
 https://CRAN.R-project.org/package=dplyr
 13. Robinson, M., & Oshlack, A. (2010). A scaling normalization method for differential expression analysis of RNA-seq data. Genome Biology, 11(3), R25. doi: 10.1186/gb-2010-11-3-r25
+14. Englert, J. A., & Rogers, A. J. (2016). Metabolism, Metabolomics, and Nutritional Support of Patients with Sepsis. Clinics in chest medicine, 37(2), 321–331. https://doi.org/10.1016/j.ccm.2016.01.011
+15. Bindea, G., Mlecnik, B., Hackl, H., Charoentong, P., Tosolini, M., Kirilovsky, A., Fridman, W. H., Pagès, F., Trajanoski, Z., & Galon, J. (2009). ClueGO: a Cytoscape plug-in to decipher functionally grouped gene ontology and pathway annotation networks. Bioinformatics (Oxford, England), 25(8), 1091–1093. https://doi.org/10.1093/bioinformatics/btp101
+16. Kolberg L, Raudvere U, Kuzmin I, Vilo J, Peterson H (2020). “gprofiler2- an R
+package for gene list functional enrichment analysis and namespace conversion
+toolset g:Profiler.” F1000Research, 9 (ELIXIR)(709). R package version
+0.2.1.
